@@ -144,3 +144,112 @@ $ echo $PATH
 * we add jdk, name it, disable auto install set path to our jvm `echo $JAVA_HOME` to find out
 * we add git , name it, dsable install automatic, set path to `git` as it is installed globally
 * we add maven, name it, disable auto install, add path to maven installation path without the bin folder
+* we save
+
+### Lecture 19 - Create our first Maven-bases Jenkins project
+
+* for complex maven projects use the Maven+Project+Plugin
+* [git repo](https://github.com/jleetutorial/maven-project.git)
+* the porject is a simple web app that prints hello worlds to browser. it has 2 modules
+	* webapp: has web.xml for deploy
+	* server
+* maven used pom.xml to describe the sw project to build (dependencies to external modules, directory structure, required plugins, predefined targets to perform compilation and packaging)
+* we create a new project *maven-project* as a freestyle project
+* we select git as SCM and add the github url, no credential (public, master branch)
+* for build step we select top-level maven target, select our maven installation
+* different phases of maven lifecycle
+	* validate: project correct all the info available
+	* compile: source code
+	* test: test using a suitable unit testing framework
+	* package: package code in its distributable format
+	* verify: run checks, integration tests
+	* install: install package to local repo, use it as depecdency to other projects locally
+	* deploy: copy final package to remote repo for sharing
+* in jenkis maven build we need to specify only the last phase to be executed
+* we set our goal to `clean package`. we want to clean any previous assets and start our clean build up to package phase
+
+### Lecture 21 - Run our first Jenkins Build and Jenkins Workspace
+
+* in our project page we run build now, wait and get a build success.
+* the console log of teh build is massive. jenkins build in a shared workspace on the local machine `/var/lib/jenkins/workspace/maven-project`, clonse github repo, it specifies the modules, does the cleanup, moves to first module and executes the sequentially build commands proints unit test reports
+* in the project page if we click to workspace, we see the dir structure of the space used to build the project
+
+### Lecture 23 - Configure Jenkins to poll source code changes periodically
+
+* we want to trigger build when we commit on github
+* we go to project space, and in menu=> configure
+* in build triggers we select poll scm option
+* the scedule field follows the syntax of Cron (unix task scheduler)
+	* Cron syntax 5 fields separated by TAb or whitespace 1st: minute(0-59, 2nd hour (0-23),3rd day of month (1-31), 4th month (1-12), 5th day of week (0-6) * is wildcard.
+	* e.g 0 2-4 * * * is every day at 2am 3am and 4am
+* we put * * * * *  to poll SCM every minute
+* we test git polling log to see the polling activity. no change detected
+* we need to fork the repo to be able to make changes
+* we link jenkins to our repo.
+* we clone the repo to our machine
+* make a change commit and push. this should trigger a build to jenkins. it does and we see the change we made as commit comment
+
+### Lecture 25 - Other Build Triggers of jenkins
+
+* we go to project configuration in build triggers
+* we can trigger remotely via API using a Token, if we hit the url `JENKINS_URL/job/maven-project/build?token=TOKEN_NAME` with an ajax request eg it will trigger a build
+* build after build sets a build pipeline. we can even set jobs to run different stages of the build or take metrics. in the field we pipe jenkins project names e.g project1, project2. any of the projects finish will trigger the build
+* the build periodically schedules builds according to the CRON schedule periodinc builds are still relevant in CI for very long builds where quick feedback is less critical, intesive load tests
+* NEXT option binds build to git commit instead of polling git. to use it we need to setup the hook between github and jenkins
+
+## Section 3 - Continuous Inspection with jenkins
+
+### Lecture 27 - Code Quality and Code Coverage Metrics Report
+
+* we now see code coverage and code quality metrics
+* we will see how to setup jenkins to produce checkstyle rpeort during the builds
+* checkstyle plugin runs at each build and produces reports with warnings. we find it in the available plugins and install it.
+* we configure our maven project to execute checkstyle. in project configuration we go to build goals we modify it adding `checkstyle:checkstyle` 
+* we also want a published report. we add it in postbuild actions selecting publish checkstyle reports. we leave output dir empty. report will be placed i project workspace.
+* we manually trigger a build. after it finishes we get a new menu item in project page called checkstyle warnings
+* we check the warnings one by one and add fixes we commit and build, we get more warnings so we do more fixes until there are no more warnings in checkstyle warnings
+* for java pmd is used or findbugs
+
+### Lecture 29 - Jenkins support for Gradle, Ant and Shell Scripts
+
+* jenkins provides support for almost all popular build systems
+* ANt is a low level build language for Java
+* to use ant in jenkins we need to add ant plugin. when we install it we can invoke ant in build options, targets are similar to maven
+* gradle is a build tool for jvm, once installed it gives an invoke gradle script option
+* Shell script is handy to perform low level OS related tasks, in the build we have built in the execute shell option
+
+## Section 4 - Continuous Delivery with jenkins
+
+### Lecture 31 - Archive Build Artifacts
+
+* our aim to stage the app for qe testing
+* one way is to archive the generated artifact and then in  next job take the archived artifact an deploy it to staging environemnt.
+* we got othe project page -> cofiguration -> post build actions and add one more action *archive the artifacts* 
+* for java ee this file is the *.war file so we add **/*.war
+* we trigger the build and after completion we click on it. we see the artifact there waiiting. the artifact was built anyway. post-build action just archives it
+
+### Lecture 32 - Install and configure Tomcat as staging environment
+
+* tomcat is an open-source webserver offers pure java http web environment
+* we download v8 and extract in our workspace/tools
+* jenkins runs at 8080 (we set it to 8081) and tomcat at 8080 so we set it to 8082
+* in the installation folder we open conf/server.xml and look for connector
+* we have to make the run script executable. we enter bin
+* the script that starts tomcat is startup.sh (in our installtion it is executable) we do chmod +x
+* we run the script ./startup.sh and visit localhost:8050
+* tomcat is live and running
+* to connect jenkins with tomcat we need tomcat credentials
+* we go to conf/tomcat-users.xml and go to the end of the file
+* we need to assign two new roles to the user. security in tomcat is role based, we add manager-script role and admin-gui and leave only tomcat user, we remove all the rest, we set password of tomcat, we set the new roles to user, we remove the comments around user
+
+```
+  <role rolename="manager-script"/>
+  <role rolename="admin-gui"/>
+  <user username="tomcat" password="tomcat" roles="manager-script,admin-gui"/>
+```
+
+* we restart tomcat
+
+### Lecture 33 - Deploy to Staging Environment
+
+*
