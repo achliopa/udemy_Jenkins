@@ -126,4 +126,21 @@ $ echo $PATH
 
 ### Lecture 15 - Install Git and Jenkins Github Plugin
 
-* 
+* we install git on our machine (we have it)
+* we will install github plugin for jenkins
+* in jenkins control panel => manage plugins => avaliable tab=> search for github (github plugin now named github). we can install without restart innew jenkins versions. if we update plugins we need to restart
+
+### Lecture 16 - Install and Configure Maven
+
+*  (we dont need it for JS as we can build from shell but...)
+* maven describes how sw is built, describes its dependencies
+* we download apache maven (hope it will run at home dir)
+* we add the bin dir of the maven folder to PATH we add `export PATH=/home/<home folder>/apache-maven-3.5.3/bin:$PATH` to~/.profile
+* we test by typing `mvn -v`
+
+### Lecture 17 - Configure Jenkins for our Maven-based project
+
+* we go to jenkins -> settings -> global tool configuration 
+* we add jdk, name it, disable auto install set path to our jvm `echo $JAVA_HOME` to find out
+* we add git , name it, dsable install automatic, set path to `git` as it is installed globally
+* we add maven, name it, disable auto install, add path to maven installation path without the bin folder
