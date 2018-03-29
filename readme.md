@@ -252,4 +252,292 @@ $ echo $PATH
 
 ### Lecture 33 - Deploy to Staging Environment
 
-*
+* to deploy our app to tomcat staging environment we need to install 2 plugins to jenkins: copy artifact & deploy to container
+	* copy artifact allows jenkins to copy artifact from other jobs
+	* deploy plugin actually deploys the artifact from jenkins to tomcat
+* we install copy artifact plugin
+* we install deploy to container plugin
+* we rename maven-project as we will create another job (project) to deploy our app. maven project is now called package as it actually build and packages the project
+* we create anew item called *deploy-to-staging* as a freestyle project
+* we add a build step => copy artifacts from another project
+	* project name: package (copy from)
+	* artufacts to copy: **/*.war (all war files)
+* we add a post-build action (deploye war/ear to container)
+	* at war/ear we put all war files(**/*.war)
+	* containers => tomcat 8.x we add credentials from the tomcat xml file and url=> http://localhost:8082
+* this new job should be automaticaly triggered if previous job finishes successfully
+* we do this by adding a post build action to package job to trigger the next job. we go to package job configuration => post build actions and select build other projects and select deployt-to-staging project
+* we will do a manual build in package console and hopefully have our app deployed to tomcat.
+* both jobs finish. we click on the deploy job and see it was successful. in its page we see the upstream project package (clue=ok). we see the log and it says successful deploy. we go to the tomcat app path localhost:8082/webapp and see the app!! sucess
+
+### Lecture 36 - Jenkins Build Pipeline
+
+* we have implemented a build pipeline of 2 jobs:
+	Upstream Job: compile->test-> package
+	Downstream job: Staging for QE testing
+* jenkins supports multi-step build pipelines and trigger rebuild of project if one of the dependencies is updated
+* in real life large proojects we might have dozens or hundrends of jobs. its difficult to kkep track. we need a tool to visualize the pipeline to understand how jobs connect. we use the build pipeline plugin
+* we install the build pipeline plugin
+* we click the + sign over the project table in main dashboard.
+* there we can create a new view (a way to organize our jobs)
+* we call the view buils pipeline, we check buils pipeline typw and ok
+* in the naxe form we need to set the initial job this is the start of the pipelineview (select iniital jb -package) and click ok
+* we get the view.. we can truigger a run with run. if we refresh page we see the status is green
+
+### Lecture 37 - Parallel Jenkins Build
+
+* up to know we run our build steps sequentially
+* some times we want parallelisation to spped up especially if a step takes a long time
+* after packaging we will run in parallel staging and checkstyle report
+* we go to package job configuration  and remove checkstyle from build goal
+* we create anew job that only runs checkstyle (job name: static-analysis)
+* at source control we add the git repo and build steps we add a maven targer (checkstyle:checkstyle)
+* we now need to trigger the job from the post build actions of package job. at the post build action tha build other projects we add the new job with a comma
+* at the build pipeline view we see the parallelization
+
+### Deploy to Production
+
+* we now going to add the deploy to production step in the pipeline. however we dont want it to be fully auto. we need the approval of QA manager/release manager after he reviews the app at staging env. so this step we want to be manually triggered
+* we will now run a second tomcat server (production server)
+* we shutdown tomcat (8082)
+* we cp the whole installation `cp -r apache-tomcat-8.0.50/ apache-tomcat-8.0.50_prod/`
+* at conf/server.xml we set prod srv `<Connector port="8083" protocol="HTTP/1.1"`
+* we startup both servers
+* in jenkins we create anew job named *deploy-to-prod*
+* the config of this job is similar to the *deploy-to-staging*
+job. we add a copy article from another project build step. we copy from package and the artifacts are `**/*.war`
+* at post build actions we add war file pswd select tomcat 8.x and the url *http://localhost:8083*
+* we finished config now we  need a build trigger. we want it to finish after deploy-to-staging finishes
+* we go to deploy-to-staging job config and add a new post-build action (build other projects manual step) and enter deploy-to-prod
+* our pipeline view is complete. we manually trigger the pipeline. all is done ecept deploy-to-prod
+* at bottomright of the step in pipeline view we have the manual trigger
+
+### Section 5 - Jenkins Pipeline as Code(Jenkinsfile)
+
+### Lecture 42 - ocerview of Pipeline as code
+
+* we will convert our pipeline into code
+* we include kenkins commands in the repo
+* pipeline into text file-> jenkinsfile
+* Benefits: version control, best practice, less error-prone execution of jobs, logic based exectuion of steps
+* sample
+
+```
+pipeline {
+	agent any
+	stages {
+		stage ('Initialize') {
+			steps {
+				sh '''
+					echo "PATH=${PATH}"
+					echo "M2_HOME = ${M2_HOME}"
+				'''
+			}
+		}
+		stage ('Build') {
+			steps {
+				echo "Hello World!"
+			}
+		}
+	}
+}
+```
+
+* for proper systax highlight of jenkinsfile set the code editor to groovy (java based scripting lang, jenkinsfile is a groovy file)
+* we mostly work in stages space defining stages and steps
+* our initialize stage has 1 step that runs a shell script
+* build stage has 1 step also a shell command
+* we will impleemnt this pipeline in jenkins console.
+* we need to have pipeline plugin in jenkins (we install it)
+* we will create a new job which will be connected to the scripts and the repo. we name it PipelineAsCodeExample and we select type=pipeline
+* at its configuration we go to Pipeline section. select Pipeline scritp from SCM, SCM->git, repo URL (we fork https://github.com/CJRivas/jenkinspipeline and put a link to our repo)
+we have it public so no credentials needed
+* the file used will be Jenkinsfile. we save
+* in the dashboard we manually run it
+* we clone the project locally
+* we open the jenkins file
+* in the project screen we see the stage view with staging, stages and output
+* [jenkinsfile spec](https://jenkins.io/doc/book/pipeline/jenkinsfile/)
+* [groovy lang](http://groovy-lang.org/)
+
+### Lecture 44 - Automate our existing Jenkins Pipeline
+
+* we will execute our existing pipeline but from code
+* we can write a jenkins file as groovyscript or as declarative pipeline
+* as agents we declare the nodes to be used for executing the pipeline. with `agent any` we mean use any available node
+* we can specify the agen in the stage if we want it to run on a specific node
+* each stage is made of steps
+* the declarative pipeline is a good tradeoff between using ui or using a groovyscript
+* we write a jenkinsfile for our package build. we will place it in the maven-project repo from previous section so that  the package job will be converted to a pipeline job
+
+```
+pipeline {
+	agent any 
+	stages {
+		stage('Build'){
+			steps {
+				sh "mvn clean package"
+			}
+			post {
+				success {
+					echo 'Now Archiving...'
+					archiveArtifacts artifacts: '**/target/*.war'
+				}
+			}
+		}
+	}
+}
+```
+
+* in this script we have one build step a shell script to run maven up to package level cleaning the artifacts first
+* in the post build actions specified we use conditional . if the build is successful show a message and archive the artifacts.
+* with the file in our repo we create a new package-pipeline project of type pipeline. we set pipeline script from scm. set git and se repo url to our forked naven-project where we have pushed the jekinsfile
+* we need to set a tools section in jenkinsfile to set maven to localMaven
+
+```
+	tools {
+		maven 'localMaven'
+	}
+```
+
+* we now want to call a non pipelined job from our pipeline script. we do this by
+
+```
+stage('Deploy to Staging') {
+			steps {
+				build job:  'deploy-to-staging'
+			}
+		}
+```
+
+* at build job: name we give the job name
+* we do a small change to our code to ferify that all pipeline executed and correct package is on staging env. OK
+* we will add now deploy to production
+
+```
+stage('Deploy to Production') {
+			steps {
+				timeout(time:5, unit:'DAYS'){
+					input message: 'Approve PRODUCTION Deployment?', submitter: admin
+				}
+
+				build job: 'deploy-to-prod'
+			}
+			post {
+				success {
+					echo 'Code deployed to PRODUCTION'
+				}
+				failure {
+					echo 'Deployment failed'
+				}
+			}
+
+		}
+```
+
+* this script sets a timeout for this step . if its not terminated (success or fail) in 5 days it will auto fail. also it asks for input to peocwwd (confirmation), we can also specify the submitter you can conform for this stage to proceed. the build step calls an existing job and uppon termination prints amessage depnding on the outcome.
+
+### Lecture 47 - Fully Automated jenkins Pipeline
+
+* setup git repo polling
+* deployment to our tomcat servers, no dependence to other jobs. the pipeline script does all the job
+* setup tasks to run in parallel
+* how to setup tomcat on ec2 or AWS
+* we go to aws to make a new ec2 instance
+* we need to creTE A SECURITY GROUP
+* AWS servers are bound to a local network and not accessible from outside
+* we set group name to tomcat and open 3 ports (1 http pport, 1 tcp port 8080, and an ssh port vible only to our private ip)=> set this to myip
+we need access through ssh so we need a key, we go to keypairs in the menu list. we create a new one named tomcat-demo
+* we create 2 instances in aws foe our 2 tomcat servers. we go to instances -> launch instance-> amazon linux-> t2-micro->defaults...->security gorup existing->tomcat and launch using our tomcat-demo keypair
+* we view it and we see its public ip
+* we go to where the ssh key from aws was downloaded and we `chmod 400` it
+* we ssh to it from the folder where we have the key `ssh ec2-user@18.184.17.239 -i tomcat-demo.pem 
+`
+* we are logged in the aws
+* we install tomcat `sudo yum install tomcat7`
+* we lt -lt in /etc/tomcat7 to verify installation
+* our workspace is at /var/lib/tomcat7
+* before we go out we start tomcat `sudo service tomcat7 start`
+* we need to install in total two instances in AWS an install tomcat to both of them. they can have same port as they will have different ip
+* there is no need to configure tomcat users and roles as we wont use deploy to container plugin in the pipeline
+
+* we will create a new pipeline to use aws tomcats. we call it FullyAutomated and select type=pipeline, select pipeline script from SCM add the repo (jenbkinspipeline)
+* we start writing the jenkinsfile
+* we set the staging and prod server connection ips as params to avoid hardcoding
+
+
+```
+pipeline {
+    agent any
+    
+    parameters { 
+         string(name: 'tomcat_dev', defaultValue: '18.197.151.138', description: 'Staging Server')
+         string(name: 'tomcat_prod', defaultValue: '18.184.17.239', description: 'Production Server')
+    } 
+```
+
+* we set the tools
+
+```
+	tools {
+		maven 'localMaven'
+	}
+```
+
+* we add the trigger section to triger our repo in github to check for commits (every 1 minute)
+
+```
+    triggers {
+         pollSCM('* * * * *') // Polling Source Control
+     }
+```
+
+* build is local so same as before
+
+```
+        stage('Build'){
+            steps {
+                sh 'mvn clean package'
+            }
+            post {
+                success {
+                    echo 'Now Archiving...'
+                    archiveArtifacts artifacts: '**/target/*.war'
+                }
+            }
+        }
+```
+
+* we group deployment to staging and deployment to production into one stage *Deployments*
+* we have now a directive call parallel, saying to jenkins that he can run them in parallel if possible
+
+```
+stage ('Deployments'){
+            parallel{
+                stage ('Deploy to Staging'){
+                    steps {
+                        sh "scp -i /home/achliopa/workspace/tools/tomcat_aws
+/tomcat-demo.pem **/target/*.war ec2-user@${params.tomcat_dev}:/var/lib/tomcat7/webapps"
+                    }
+                }
+
+                stage ("Deploy to Production"){
+                    steps {
+                        sh "scp -i /home/achliopa/workspace/tools/tomcat_aws
+/tomcat-demo.pem  **/target/*.war ec2-user@${params.tomcat_prod}:/var/lib/tomcat7/webapps"
+                    }
+                }
+            }
+        }
+```
+
+* to work we need to be loggin in the local machine with the same username we use to connect to ec2
+* to deploy to local machines
+	* Use cp instead of scp command to copy artifact to tomcat directory on the local box.
+	* Use localhost as the server IPs.
+
+## Section 6 - Distributed Builds
+
+### Lecture 51 - Introduction to Distributed Jenkins Build
+
+* for big organizations a lot of jenkis nodes are used one is the master and the others are the slaves
