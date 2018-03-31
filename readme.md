@@ -541,3 +541,194 @@ stage ('Deployments'){
 ### Lecture 51 - Introduction to Distributed Jenkins Build
 
 * for big organizations a lot of jenkis nodes are used one is the master and the others are the slaves
+* master will: schedule build jobs, dispatch builds to the slaves for the actual job execution, monitor the slaves and record the build results. also can execute jobs directly
+slaves execute jobs dispatched by the master
+* he will deploy to dicital ocean
+
+### Lecture 52 - Install Jenkins master Node in the Cloud
+
+* Master has the jobs slave the executors of the jobs
+* master can start slave aggents via ssh
+* we can start slave agent manually with java web start
+* install slave agent as window service
+* start slave agent direcltly via command line on slave
+* jenkins has its own ssh client
+* we will use digitalocean to build our cluster using droplets.
+* we do an ubuntu node. digitalocean sends us an email with all the info
+* we install jenkins on this vm to use it as jenkins master
+* we need to ssh to it ssh root@ip
+* we enter the sent pswd and change it to our own
+* we install jenkins on the node
+	* install the package keys
+	* create source list for jenkins , where to download
+	* INSTALLATION GIVES EERORS SO WE INSTALL OLDER VERSION
+```
+wget -q -O - http://pkg.jenkins-ci.org/debian/jenkins-ci.org.key | apt-key add -
+ 
+echo deb http://pkg.jenkins-ci.org/debian binary/ > /etc/apt/sources.list.d/jenkins.list
+ 
+apt-get update
+ 
+apt-get install jenkins
+```
+
+* if install fails install older version `apt-get install jenkins=2.67`
+* INSTALLATION COMPLETES	
+* we visit ip:8080 at our browser
+* jenkins is running ok.
+* we cp pswd from `/var/lib/jenkins/secrets/initialAdminPassword`
+* we skip plugins install
+* we see jenkins dashboard on browser
+
+### Lecture 54 - Install Jenkins Slave Agents in the Cloud
+
+* we create a second vm in digital ocean
+* we check the email for the credentials. we login with ssh and change the pswd
+* the way we start the slave agent is: master node will start the slave agent on the slave machine using SSH
+* automatic SSH login without pswd from master node to slave node is needed
+* master node will be running as a user called *Jenkins* to start the slave agent
+* at master node (where we have jenkins installed) we change user to jenkins `sudo -iu jenkins`
+* we need to generate a set of keys for ssh auto login `ssh-keygen -t rsa`
+
+* DO NOT USE PASSPHRASE
+
+* from master we login to slave using ssh and make a directory called .ssh `ssh root@159.65.204.7 mkdir -p .ssh`
+* we copy the public key from the master node to the slave node .ssh folder authorized keys file `cat .ssh/id_rsa.pub | ssh root@159.65.204.7 'cat >> .ssh/authorized_keys'
+`
+
+* now we can login without pswd from master to slave using `ssh root@slaveip`
+* we now have to install slave agent in slave
+* we create a bin directory and enter it
+* the slave agent is available to download from the master node 
+* we copy it to slave bin with `wget http://188.166.117.91:8080/jnlpJars/slave.jar`
+* we need to install java on the slave node to run .jar files
+* we install it on slave with `sudo apt-get install default-jre` 
+* we hook up the slave node with the jenkins master
+* we go to master node Jenkins->Manage jenkins -> manage nodes
+* we have only the master node
+* we click new node, we name the new node *linux-slave-1*, select the permanent agent option and next.
+* in the next config page there is a # of executors build block
+* the executor is a basic building block which allowes a build to run on a node
+* its like a single process, a basic unit of resource tha jenkins executes to run the buils
+* the # of executors specifies the maximum number of concurrent builds that jenkins will perform on this agent.
+* a good value of executors to start with is the number of cores on the machine. setting more will cause each build to last longer but overall througput might increase. if one is cpu bound and the other io bound 1 might make use of io while the other uses cpu
+* the remote root directory is a direcory on slave used by jenkins to create build workspaces `/var/jenkins`
+* select launch agent via execution of command on the master
+* at launch command we put `ssh root@<slaveip< java -jar /root/bin/slave.jar` master will ssh to slave to run the salve agent program
+* we click save
+slave node xas red crtoss. it is not active, slave agent has started in bacground, refresh page and it is ready
+
+### Lecture 56 - Concurrent Jenkins Build and Label Jenkins Build
+
+* we create 3 build jobs on master node
+	* job1: freestyle type => build step: execute shell `sleep 10;`
+	* job2: freestyle type => build step: execute shell `sleep 10;`
+	* job3: freestyle type => build step: execute shell `sleep 10;`
+* in the build executor status we see the 2 nodes aand that both hacve 2 executors
+* we manually trigger 3 jobs. they are dispatched to slave an some run on master
+* in real projects we might want a node to be reserved for certain kind of jobs
+* e.g if we have jobs that run performance tests we may want them to run only on specially configured machines, preventing other jobs from using the node
+* to do it we restrict where the jobs may run by giving them label expression matching the machine
+* we go to jenkins -> manage jenkins -> manage nodes
+* we click a node and select configure
+* in usage sections instead of selecting use this node as much as possible choose only build jobs with label expressions matching thios node
+* in labels field we write e.g. *slave*
+* we go to a job configuration and select *restict where this project can be run*
+* at the label expression we put *slave*
+* now this job can run only on the slave node
+
+* jenkinspipeline complete Jenkinsfile
+
+```
+pipeline {
+    agent any
+    tools {
+        maven 'localMaven'
+    }
+    parameters { 
+         string(name: 'tomcat_dev', defaultValue: '18.197.151.138', description: 'Staging Server')
+         string(name: 'tomcat_prod', defaultValue: '18.184.17.239', description: 'Production Server')
+    } 
+
+    triggers {
+         pollSCM('* * * * *') // Polling Source Control
+     }
+
+stages{
+        stage('Build'){
+            steps {
+                sh 'mvn clean package'
+            }
+            post {
+                success {
+                    echo 'Now Archiving...'
+                    archiveArtifacts artifacts: '**/target/*.war'
+                }
+            }
+        }
+
+        stage ('Deployments'){
+            parallel{
+                stage ('Deploy to Staging'){
+                    steps {
+                        sh "scp -vvv -i /home/achliopa/workspace/tools/tomcat_aws/tomcat-demo.pem **/target/*.war ec2-user@${params.tomcat_dev}:/var/lib/tomcat7/webapps"
+                    }
+                }
+
+                stage ("Deploy to Production"){
+                    steps {
+                        sh "scp -vvv -i /home/achliopa/workspace/tools/tomcat_aws/tomcat-demo.pem **/target/*.war ec2-user@${params.tomcat_prod}:/var/lib/tomcat7/webapps"
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+* mave-project Jenkinsfile
+
+```
+pipeline {
+	agent any
+	tools {
+		maven 'localMaven'
+	}
+	stages {
+		stage('Build'){
+			steps {
+        		sh 'mvn clean package'
+        	}
+			post {
+				success {
+					echo 'Now Archiving...'
+					archiveArtifacts artifacts: '**/target/*.war'
+				}
+			}
+		}
+		stage('Deploy to Staging') {
+			steps {
+				build job:  'deploy-to-staging'
+			}
+		}
+		stage('Deploy to Production') {
+			steps {
+				timeout(time:5, unit:'DAYS'){
+					input message: 'Approve PRODUCTION Deployment?'
+				}
+
+				build job: 'deploy-to-prod'
+			}
+			post {
+				success {
+					echo 'Code deployed to PRODUCTION'
+				}
+				failure {
+					echo 'Deployment failed'
+				}
+			}
+
+		}
+	}
+}
+```
